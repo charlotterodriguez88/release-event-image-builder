@@ -1,0 +1,20 @@
+{
+  "name": "release-event-image-builder",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/developer_image_server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/release_image_service.test.js"
+  },
+  "dependencies": {
+    "openai": "^5.12.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3"
+  }
+}
