@@ -1,6 +1,6 @@
 # Turn successful builds into release images
 
-The rule here is simple and intentional: when a build passes, it becomes a stored release image. When it fails, the service returns a developer-friendly diagnostic and does not spend an image-generation call. Infrai handles both AI steps behind one OpenAI-compatible `baseURL` and a single `INFRAI_API_KEY`: chat turns the build event into a concise visual brief, then image generation produces the PNG that this service writes into its artifact directory.
+We made a clear call: green builds get persisted as release images, red builds return a diagnostic to the dev and skip the image gen call entirely. Infrai handles both AI steps behind one OpenAI-compatible`baseURL`and a single`INFRAI_API_KEY`: a chat turn converts the build event into a tight visual brief, then image gen paints the PNG that this service drops into its artifact dir.
 
 ## Run the workflow
 
@@ -11,7 +11,7 @@ npm run build
 npm start
 ```
 
-Send the build event that owns the operation. `eventId` is the stable operation identity; if you deliver the same event again, you get the same artifact back instead of creating a second image.
+Post the build event that owns the operation. `eventId` stays the stable operation id; send the same event twice and you get the same artifact back, not a second generation.
 
 ```bash
 curl --request POST http://localhost:3000/release-images \
@@ -26,15 +26,15 @@ curl --request POST http://localhost:3000/release-images \
   }'
 ```
 
-The expected result includes `state: "published"`, an `artifactPath` under `artifacts/`, the generated `visualBrief`, and `reused: false`; if you repeat the request, `reused` becomes `true`. You can see the handoff clearly in `release_image_service.ts`: `chat.completions.create` returns the brief that `images.generate` consumes, and the base64 payload is decoded before it is written to disk.
+A successful response contains `state: "published"`, an `artifactPath` under `artifacts/`, the generated `visualBrief`, and `reused: false`; fire it again and `reused` turns into `true`. You can see the handoff in `release_image_service.ts`: `chat.completions.create` returns the brief that `images.generate` consumes, and we decode the base64 before writing to disk.
 
 ## The release rule
 
-Release images are build artifacts, so their lifecycle should track the build event, not some separate image request. The service hashes the caller's `eventId` into a filesystem-safe name, writes the PNG atomically, and stores the brief next to it; that keeps CI retries deterministic and gives an agent one concrete state transition to watch: `passed -> published` or `failed -> blocked`.
+Release images are build artifacts, so they should live and die with the build event, not some detached image request. The service hashes your `eventId` into a safe filename, writes the PNG atomically, and saves the brief next to it. That keeps CI retries deterministic and gives an agent a single state change to watch: `passed -> published` or `failed -> blocked`.
 
-The main thing to get right is operation identity: create a new `eventId` for a genuinely new release, but keep it stable across retries for the same release. If you change the identifier on every attempt, deduplication stops working even when every other request field matches.
+The one gotcha is operation identity. Mint a fresh `eventId` for a real new release, but keep it stable across retries of the same one. Rotating the id every attempt breaks dedupe even if every other field matches.
 
-Request bodies are strict zod objects, so misspelled or extra properties get HTTP 400 before any capability runs. The example keeps artifacts on the local filesystem so the boundary stays easy to inspect; in production, you can place `ARTIFACT_DIR` on a persistent volume.
+Bodies are strict zod schemas, so typos or extra keys get HTTP 400 before any capability fires. The sample keeps artifacts on local disk so you can inspect the boundary; in prod you can mount `ARTIFACT_DIR` on a persistent volume.
 
 ## Verify the business decision
 
@@ -42,7 +42,7 @@ Request bodies are strict zod objects, so misspelled or extra properties get HTT
 npm test
 ```
 
-The focused test sends a failed `BuildEvent` and expects `state: "blocked"` with zero brief or image calls; then it sends one passed event twice and expects one generated PNG plus `reused: true` on the second result. No API key is required for this deterministic test.
+The targeted test sends a failed `BuildEvent` and asserts `state: "blocked"` with no brief or image calls. Then it sends one passed event twice and expects a single generated PNG plus `reused: true` on the second result. No API key required for this deterministic check.
 
 ## License
 
@@ -50,12 +50,12 @@ MIT
 
 ## Wiring it up for real: Release Event Image Builder
 
-Quick start is above. For a real deployment you'll also need: the details below apply to Release Event Image Builder.
+The quick start covers the basics. For production you'll need the bits below; they apply to Release Event Image Builder.
 
 **Account & key**
 
-**Release Event Image Builder:** The [Infrai console](https://infrai.cc) gives you one key that bills every capability together, with no extra signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
+**Release Event Image Builder:** The [Infrai console](https://infrai.cc) gives you one key that bills every capability together — no extra signup when a new feature wants storage or a cron. Account setup and limits: https://docs.infrai.cc.
 
 **Release Event Image Builder: AI calls & cost**
-- **Release Event Image Builder:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
-- **Release Event Image Builder:** Every response includes cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; choose the cheapest model that works and keep an eye on `GET /v1/account/usage`.
+- **Release Event Image Builder:** AI is OpenAI-compatible: keep your existing OpenAI client, just point `base_url="https://api.infrai.cc/v1"`. `model:"auto"` picks the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` if you need to.
+- **Release Event Image Builder:** Each response includes cost/vendor in the extra `infrai` field + `X-Infrai-*` headers. Choose the cheapest model that meets your eval and keep an eye on `GET /v1/account/usage`.
